@@ -1,12 +1,15 @@
-from typing import Optional, Hashable, Any, TextIO
+from typing import Optional, Hashable, Any, TextIO, Sequence
 from pathlib import Path
 import json
 import io
 
 
 class Jsondb:
-    def __init__(self, path: Path | str):
+    def __init__(self, path: Path | str, caching: Optional[bool] = True):
         self.__path: Path = Path(path)
+        # Index caching
+        self.caching = caching
+        self.__index_cache: dict | None = None
 
     @property
     def path(self) -> Path:
@@ -23,6 +26,7 @@ class Jsondb:
         self.path.touch(exist_ok=True)
         with open(self.path, "r+") as f:
             index = self._get_index(f, truncate=True)
+            self.__index_cache = None
 
             # Move to end of file and add newline. If file is empty, do not add newline.
             f.seek(0, io.SEEK_END)
@@ -43,8 +47,7 @@ class Jsondb:
             f.write(json.dumps(index) + '\n')
             f.write(str(index_pos))
 
-    @staticmethod
-    def _get_index(file: TextIO, *, truncate: Optional[bool] = False) -> dict:
+    def _get_index(self, file: TextIO, *, truncate: Optional[bool] = False) -> dict:
         """
         Returns the database index and, optionally, removes it from the database.
         Parameters
@@ -59,6 +62,9 @@ class Jsondb:
         dict
             Database index.
         """
+        if self.__index_cache is not None:
+            return self.__index_cache
+
         # Return to original pos after.
         original_pos: int = file.tell()
 
@@ -96,7 +102,43 @@ class Jsondb:
             pass
 
         file.seek(original_pos)
+        if self.caching:
+            self.__index_cache = index
         return index
+
+    def get_many(self, keys: Sequence[Hashable], *, silent: Optional[bool] = False) -> dict[Hashable, list]:
+        """
+        Gets every value found for the given keys.
+        Parameters
+        ----------
+        keys: Sequence[Hashable]
+            Return any values matching these keys.
+        silent: Optional[bool]
+            Silences error if file doesn't exist.
+        Returns
+        -------
+        dict[Hashable, list]
+            A dictionary of keys, each with a list of matched values.
+        """
+        res: dict[Hashable, list] = {}
+
+        if not self.path.exists():
+            if silent:
+                return res
+            else:
+                raise FileNotFoundError(f"No file found at {str(self.path)}")
+
+        with open(self.path, "r") as f:
+            index = self._get_index(f)
+
+            for key in keys:
+                if target_positions := index.get(key):
+                    res[key] = []
+                    for target_pos in target_positions:
+                        f.seek(target_pos)
+                        res[key].extend(list(i for i in json.loads(f.readline()).values()))
+
+        return res
 
     def get(self, key: Hashable, *, silent: Optional[bool] = False) -> list[Any]:
         """
@@ -104,7 +146,7 @@ class Jsondb:
         Parameters
         ----------
         key: Hashable
-            Return any values matching this key.
+            Return any values matching this keys.
         silent: Optional[bool]
             Silences error if file doesn't exist.
         Returns
@@ -112,23 +154,8 @@ class Jsondb:
         list[Any]
             A list of matched values.
         """
-        res: list[Any] = []
-
-        if not self.path.exists():
-            if silent:
-                return []
-            else:
-                raise FileNotFoundError(f"No file found at {str(self.path)}")
-
-        with open(self.path, "r") as f:
-            index = self._get_index(f)
-
-            if target_positions := index.get(key):
-                for target_pos in target_positions:
-                    f.seek(target_pos)
-                    res.extend(list(i for i in json.loads(f.readline()).values()))
-
-        return res
+        res: dict[Hashable, list] = self.get_many([key], silent=silent)
+        return res.get(key, [])
 
     def __enter__(self):
         return self
