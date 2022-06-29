@@ -30,7 +30,14 @@ from jsondb.errors import *
 
 
 class Jsondb:
-    def __init__(self, path: Path | str):
+    def __init__(self, path: Path | str) -> None:
+        """
+        Connects to a database file.
+        Parameters
+        ----------
+        path: Path | str
+            Path to the database file.
+        """
         self.__path: Path = Path(path)
         self.__index: dict = {}
 
@@ -44,20 +51,30 @@ class Jsondb:
         return self.__path
 
     def open(self) -> None:
+        """
+        Open database file for IO access.
+        """
         if self.__fio is None:
             self.__fio: TextIO = open(self.path, "r+")
 
     def flush(self) -> None:
+        """
+        Manually trigger writing all changes to disk.
+        """
         if self.__fio is not None:
             self.__fio.flush()
 
     def close(self) -> None:
+        """
+        Close database file.
+        """
+        self.__index = {}
         if self.__fio is not None:
             self.__fio.close()
             self.__fio = None
 
     @staticmethod
-    def requires_fio(f: Callable):
+    def requires_fio(f: Callable) -> Callable:
         def wrapper(self, *args, **kwargs):
             if self.__fio is None:
                 raise ClosedDatabaseError()
@@ -144,7 +161,7 @@ class Jsondb:
         self.__fio.write(str(index_pos))
 
     @requires_fio
-    def get_many(self, keys: Sequence[Hashable]) -> dict[Hashable, list]:
+    def get_many(self, keys: Sequence[Hashable]) -> dict[Hashable, list[Any]]:
         """
         Gets every value found for the given keys.
         Parameters
@@ -153,10 +170,10 @@ class Jsondb:
             Return any values matching these keys.
         Returns
         -------
-        dict[Hashable, list]
+        dict[Hashable, list[Any]]
             A dictionary of keys, each with a list of matched values.
         """
-        res: dict[Hashable, list] = {}
+        res: dict[Hashable, list[Any]] = {}
 
         self._load_index()
 
@@ -182,7 +199,7 @@ class Jsondb:
         list[Any]
             A list of matched values.
         """
-        res: dict[Hashable, list] = self.get_many([key])
+        res: dict[Hashable, list[Any]] = self.get_many([key])
         return res.get(key, [])
 
     def __enter__(self):
