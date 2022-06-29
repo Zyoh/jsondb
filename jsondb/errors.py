@@ -1,0 +1,2 @@
+class ClosedDatabaseError(ValueError):
+    pass
